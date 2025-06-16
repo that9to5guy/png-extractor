@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sprite Extractor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      cursor: default; /* Changed from crosshair to normal */
+      margin-top: 20px;
+    }
+    #cssOutput {
+      margin-top: 20px;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+    button {
+      margin-top: 10px;
+      padding: 8px 16px;
+    }
+    #highlightBox {
+      position: absolute;
+      border: 2px dashed red;
+      pointer-events: none;
+      display: none;
+    }
+    #canvasWrapper {
+      position: relative;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <h1>Sprite Extractor</h1>
+  <input type="file" id="upload" accept="image/*" />
+  <div id="canvasWrapper">
+    <canvas id="canvas"></canvas>
+    <div id="highlightBox"></div>
+  </div>
+  <div id="cssOutput"></div>
+  <button id="downloadBtn" style="display:none">Download PNG</button>
+
+  <script>
+    const upload = document.getElementById('upload');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const cssOutput = document.getElementById('cssOutput');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const highlightBox = document.getElementById('highlightBox');
+    const canvasWrapper = document.getElementById('canvasWrapper');
+    let image = new Image();
+
+    upload.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        image.onload = function () {
+          canvas.width = image.width;
+          canvas.height = image.height;
+          ctx.drawImage(image, 0, 0);
+        };
+        image.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.floor(e.clientX - rect.left);
+      const y = Math.floor(e.clientY - rect.top);
+
+      const box = detectIconBounds(x, y);
+      if (!box) return;
+
+      const [sx, sy, sw, sh] = box;
+
+      // Show CSS output
+      const css = `.sprite {\n  background: url('your-sprite.png') no-repeat -${sx}px -${sy}px;\n  width: ${sw}px;\n  height: ${sh}px;\n}`;
+      cssOutput.textContent = css;
+
+      // Draw highlight box
+      highlightBox.style.display = 'block';
+      highlightBox.style.left = canvas.offsetLeft + sx + 'px';
+      highlightBox.style.top = canvas.offsetTop + sy + 'px';
+      highlightBox.style.width = sw + 'px';
+      highlightBox.style.height = sh + 'px';
+
+      // Create cropped image
+      const outputCanvas = document.createElement('canvas');
+      outputCanvas.width = sw;
+      outputCanvas.height = sh;
+      const outputCtx = outputCanvas.getContext('2d');
+      outputCtx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+
+      downloadBtn.style.display = 'inline-block';
+      downloadBtn.onclick = () => {
+        const link = document.createElement('a');
+        link.download = 'icon.png';
+        link.href = outputCanvas.toDataURL();
+        link.click();
+      };
+    });
+
+    // Naive flood fill to find bounding box (like SpriteCow)
+    function detectIconBounds(startX, startY) {
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      const width = imageData.width;
+      const height = imageData.height;
+      const visited = new Uint8Array(width * height);
+
+      const i = (x, y) => (y * width + x) * 4;
+      const isTransparent = (x, y) => data[i(x, y) + 3] < 50;
+      const inside = (x, y) => x >= 0 && y >= 0 && x < width && y < height;
+
+      if (isTransparent(startX, startY)) return null;
+
+      let minX = startX, maxX = startX, minY = startY, maxY = startY;
+      const queue = [[startX, startY]];
+      visited[startY * width + startX] = 1;
+
+      while (queue.length > 0) {
+        const [x, y] = queue.shift();
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+
+        for (const [dx, dy] of [[1,0], [-1,0], [0,1], [0,-1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (inside(nx, ny) && !visited[ny * width + nx] && !isTransparent(nx, ny)) {
+            visited[ny * width + nx] = 1;
+            queue.push([nx, ny]);
+          }
+        }
+      }
+
+      const w = maxX - minX + 1;
+      const h = maxY - minY + 1;
+      return [minX, minY, w, h];
+    }
+  </script>
+</body>
+</html>
